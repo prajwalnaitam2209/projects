@@ -1,0 +1,47 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+String message = "";
+void setup()
+ {
+  Serial.begin(9600);
+  
+  lcd.init();
+  lcd.backlight();
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Waiting...");
+  
+  Serial.println("=== UART Monitor Ready ===");
+  Serial.println("Waiting for data...");
+}
+
+void loop() {
+  if (Serial.available() > 0) {
+    
+    message = Serial.readStringUntil('\n'); // Read until newline
+    message.trim(); // Remove whitespace/newlines
+
+    // --- Serial Monitor Output ---
+    Serial.println("---------------------------");
+    Serial.print("Received: ");
+    Serial.println(message);
+    Serial.print("Length: ");
+    Serial.println(message.length());
+    Serial.println("---------------------------");
+
+    // --- LCD Output ---
+    lcd.clear();
+    lcd.setCursor(0, 0);
+
+    if (message.length() <= 16) {
+      // Short message fits on line 1
+      lcd.print(message);
+    } else {
+      // Long message: split across 2 lines
+      lcd.print(message.substring(0, 16));  // Line 1
+      lcd.setCursor(0, 1);
+      lcd.print(message.substring(16, 32)); // Line 2
+    }
+  }
+}
