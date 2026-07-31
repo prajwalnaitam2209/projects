@@ -1,1 +1,139 @@
+#include "Arduino_NineAxesMotion.h"
+#include <Wire.h>
+
+//  OBJECTS & DEFINES
+NineAxesMotion mySensor;
+#define tfMini Serial1         // TF Mini on Serial1 (pins 18 TX, 19 RX on Mega)
+
+//  TIMING
+unsigned long lastStreamTime = 0;
+const int streamPeriod = 40;   // 25 Hz stream
+
+//  TF MINI VARIABLES
+uint8_t buffer[9];
+int distance  = 0;
+int strength  = 0;
+bool validFrame = false;
+
+//  SENSOR FLAG
+bool updateSensorData = true;
+
+//  SETUP
+void setup()
+{
+  Serial.begin(115200);          // Serial Monitor
+  tfMini.begin(115200);          // TF Mini baud rate
+
+  Wire.begin();
+  mySensor.initSensor();
+  mySensor.setOperationMode(OPERATION_MODE_NDOF);
+  mySensor.setUpdateMode(MANUAL);   // Manual = we call update ourselves
+  mySensor.updateAccelConfig();
+
+  Serial.println("=== TF Mini + 9-Axis Accelerometer ===");
+  Serial.println("Dist(cm) | aX  aY  aZ | lX  lY  lZ | gX  gY  gZ | Calib");
+  Serial.println("--------------------------------------------------------------");
+}
+//  READ TF MINI — called every loop, non-blocking
+
+void readTFMini()
+{
+  while (tfMini.available() >= 9)
+  {
+    // Look for first header byte
+    if (tfMini.read() != 0x59) continue;
+
+    // Look for second header byte
+    if (tfMini.peek() != 0x59) continue;
+    tfMini.read(); // consume second 0x59
+
+    // Read remaining 7 bytes: DistL DistH StrL StrH Rsvd Quality Checksum
+    for (int i = 0; i < 7; i++)
+    {
+      buffer[i] = tfMini.read();
+    }
+
+    // ---- Checksum Verification ----
+    uint8_t checksum = 0x59 + 0x59
+                       + buffer[0] + buffer[1]
+                       + buffer[2] + buffer[3]
+                       + buffer[4] + buffer[5];
+
+    if (checksum == buffer[6])   // buffer[6] is the checksum byte
+    {
+      distance   = buffer[0] + (buffer[1] << 8);  // cm
+      strength   = buffer[2] + (buffer[3] << 8);  // signal strength
+      validFrame = true;
+    }
+    // If checksum fails, discard and try next frame
+  }
+}
+
+void loop()
+{
+  // 1. Always read TF Mini (non-blocking)
+  readTFMini();
+
+  // 2. Update 9-axis sensor data
+  if (updateSensorData)
+  {
+    mySensor.updateAccel();
+    mySensor.updateLinearAccel();
+    mySensor.updateGravAccel();
+    mySensor.updateCalibStatus();
+    updateSensorData = false;
+  }
+
+  // 3. Stream data at 25 Hz
+  if ((millis() - lastStreamTime) >= streamPeriod)
+  {
+    lastStreamTime = millis();
+
+    // ---- TF Mini Distance ----
+    Serial.print("Dist: ");
+    if (validFrame)
+    {
+      Serial.print(distance);
+      Serial.print(" cm");
+    }
+    else
+    {
+      Serial.print("--- cm");   // No valid frame yet
+    }
+    Serial.print(" | ");
+
+    // ---- Raw Accelerometer (m/s2) ----
+    Serial.print("aX: ");
+    Serial.print(mySensor.readAccelerometer(X_AXIS), 2);
+    Serial.print(" aY: ");
+    Serial.print(mySensor.readAccelerometer(Y_AXIS), 2);
+    Serial.print(" aZ: ");
+    Serial.print(mySensor.readAccelerometer(Z_AXIS), 2);
+    Serial.print(" m/s2 | ");
+
+    // ---- Linear Acceleration (m/s2) ----
+    Serial.print("lX: ");
+    Serial.print(mySensor.readLinearAcceleration(X_AXIS), 2);
+    Serial.print(" lY: ");
+    Serial.print(mySensor.readLinearAcceleration(Y_AXIS), 2);
+    Serial.print(" lZ: ");
+    Serial.print(mySensor.readLinearAcceleration(Z_AXIS), 2);
+    Serial.print(" m/s2 | ");
+
+    // ---- Gravity Acceleration (m/s2) ----
+    Serial.print("gX: ");
+    Serial.print(mySensor.readGravAcceleration(X_AXIS), 2);
+    Serial.print(" gY: ");
+    Serial.print(mySensor.readGravAcceleration(Y_AXIS), 2);
+    Serial.print(" gZ: ");
+    Serial.print(mySensor.readGravAcceleration(Z_AXIS), 2);
+    Serial.print(" m/s2 | ");
+
+    // ---- Calibration Status (0=uncal, 3=fully cal) ----
+    Serial.print("Calib: ");
+    Serial.println(mySensor.readAccelCalibStatus());
+
+    updateSensorData = true;
+  }
+}
 
